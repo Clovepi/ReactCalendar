@@ -5,9 +5,11 @@ from flask_cors import CORS
 import os
 
 app = Flask(__name__)
+CORS(app)
 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'app.sqlite')
+
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
 
@@ -18,16 +20,16 @@ class Month(db.Model):
     start_day = db.Column(db.Integer, nullable=False)
     days_in_month = db.Column(db.Integer, nullable=False)
     past_days = db.Column(db.Integer, nullable=False)
-    reminders = db.Column(db.relationship('Reminder', backref='month', cascade='all, delete, delete-orphan'))
+    reminders = db.relationship('Reminder', backref='month', cascade='all, delete, delete-orphan')
 
-    def __init__(self, name, year, start_day, days_in_month, past_days,)
+    def __init__(self, name, year, start_day, days_in_month, past_days):
         self.name = name
-        self.year - year
+        self.year = year
         self.start_day = start_day
         self.days_in_month = days_in_month
         self.past_days = past_days
 
-class Reminder(db.Model)
+class Reminder(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     text = db.Column(db.String, nullable=False)
     date = db.Column(db.Integer, nullable=False)
@@ -51,7 +53,62 @@ class MonthSchema(ma.Schema):
     reminders = ma.Nested(multiple_reminder_schema)
 
 month_schema = MonthSchema()
-multiple_month_schema = MonthSchema(many=True)
+multi_month_schema = MonthSchema(many=True)
+
+@app.route('/month/add', methods=["POST"])
+def add_month():
+    if request.content_type != "application/json":
+        return jsonify("Woah woah woah, what are you doing? The data must be sent as JSON!")
+
+    post_data = request.get_json()
+    name = post_data.get("name")
+    year = post_data.get("year")
+    start_day = post_data.get("start_day")
+    days_in_month = post_data.get("days_in_month")
+    past_days = post_data.get("past_days")
+
+    existing_month_check = db.session.query(Month).filter(Month.name == year).first()
+    if existing_month_check is not None:
+        return jsonify("Umm, OK. Nice try, buddy.")
+
+    new_record = Month(name, year, start_day, days_in_month, past_days)
+    db.session.add(new_record)
+    db.commit()
+
+    return jsonify(month_schema.dump(new_record))
+
+@app.route('/month/add/multi', methods=["POST"])
+def add_multiple_months():
+    if request.content_type != "application/json":
+        return jsonify("Woah woah woah, what are you doing? The data must be sent as JSON!")
+
+    post_data = request.get_json()
+    data = post_data.get("data")
+
+    new_records = []
+
+    for month in data:
+        name = month.get("name")
+        year = month.get("year")
+        start_day = month.get("start_day")
+        days_in_month = month.get("days_in_month")
+        past_days = month.get("past_days")
+
+        existing_month_check = db.session.query(Month).filter(Month.name == name).filter(Month.year == year).first()
+        if existing_month_check is not None:
+            return jsonify("Umm, OK. Nice try, buddy.")
+        else:
+            new_record = Month(name, year, start_day, days_in_month, past_days)
+            db.session.add(new_record)
+            db.session.commit()
+            new_records.append(new_record)
+
+    return jsonify(multi_month_schema.dump(new_records))
+
+@app.route("/month/get", methods=["GET"])
+def get_months():
+    all_months = db.session.query(Month).all()
+    return jsonify(multi_month_schema.dump(all_months))
 
 if __name__ == '__main__':
     app.run(debug=True)
